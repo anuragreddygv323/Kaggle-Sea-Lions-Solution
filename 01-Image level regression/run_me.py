@@ -1,5 +1,5 @@
 #Solve sea lions counting problem as regression problem on whole image
-
+#%%
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten
@@ -10,19 +10,18 @@ from keras.layers import Activation
 from keras.layers import BatchNormalization
 from keras.models import load_model
 from keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
 
 import numpy as np
 import pandas as pd
 import cv2
-import sys
 import os
-import matplotlib.pyplot as plt
 
 n_classes= 5
-batch_size= 16
-epochs= 100
+batch_size= 12
+epochs= 150
 image_size= 512
-model_name= 'cnn_regression'
+model_name= 'cnn_regression_150epochs_'
 
 def read_ignore_list():
     df_ignore= pd.read_csv('kaggle_data/mismatched_train_images.txt')
@@ -32,7 +31,7 @@ def read_ignore_list():
     
 #Just remove images from mismatched_train_images.txt
 def load_data(dir_path):
-    df= pd.read_csv('kaggle_data/train.csv')
+    df= pd.read_csv('train.csv')
     
     ignore_list= read_ignore_list()
     n_train_images= 948
@@ -41,10 +40,10 @@ def load_data(dir_path):
     y_list=[]
     for i in range(0,n_train_images):
         if i not in ignore_list:
-            image_path= os.path.join(dir_path, str(i)+'.png')
-            print image_path
-            img= cv2.imread(image_path)
-            print 'img.shape',img.shape
+            image_path= os.path.join(dir_path, str(i)+'.jpg')
+            print(image_path)
+            img = cv2.imread(image_path)
+            print('img.shape',img.shape)
             image_list.append(img)
            
             row= df.ix[i] 
@@ -59,8 +58,8 @@ def load_data(dir_path):
     x_train= np.asarray(image_list)
     y_train= np.asarray(y_list)
     
-    print 'x_train.shape', x_train.shape
-    print 'y_train.shape', y_train.shape
+    print('x_train.shape', x_train.shape)
+    print('y_train.shape', y_train.shape)
 
     return x_train,y_train
     
@@ -96,29 +95,48 @@ def get_model():
              
     return model
 
-def train():
+def train(trainPath, validOn=False):
     model= get_model()
     
-    x_train,y_train= load_data('kaggle_data/train_images_512x512')
+    x_train, y_train= load_data(trainPath)
     
     datagen = ImageDataGenerator(
         horizontal_flip=True,
         vertical_flip=True)
-        
-    model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
-                steps_per_epoch=len(x_train) / batch_size, epochs=epochs)
+    
+    if validOn:
+        x_train, x_valid, y_train, y_valid = \
+                train_test_split(x_train,y_train,  test_size=0.25)
+                
+        model.fit_generator(
+                    datagen.flow(x_train, y_train, 
+                                 batch_size=batch_size),
+                    validation_data=datagen.flow(x_valid, y_valid, 
+                                                 batch_size=batch_size),
+                    validation_steps = 1,
+                    steps_per_epoch=len(x_train) / batch_size, 
+                    epochs=epochs)
+    else:
+        model.fit_generator(
+                    datagen.flow(x_train, y_train, batch_size=batch_size),
+                    steps_per_epoch=len(x_train) / batch_size, 
+                    epochs=epochs)
 
    
-    model.save(model_name+'_model.h5')
+    model.save(model_name+'_model512x512_V2_150ep.h5')
  
-def create_submission():
-    model = load_model(model_name+'_model.h5')
+def create_submission(testPath, name, train=False):
+    model = load_model(model_name+'_model512x512_V2_150ep.h5')
     
-    n_test_images= 18636
+    if train:
+        n_test_images = 948
+    else:
+        n_test_images= 18636
+    
     pred_arr= np.zeros((n_test_images,n_classes),np.int32)
     for k in range(0,n_test_images):
-        image_path= 'kaggle_data/test_images_512x512/'+str(k)+'.png'
-        print image_path #
+        image_path= testPath+str(k)+'.jpg'
+        print(image_path)
         
         img= cv2.imread(image_path)
         img= img[None,...]
@@ -127,7 +145,7 @@ def create_submission():
         
         pred_arr[k,:]= pred
         
-    print 'pred_arr.shape', pred_arr.shape
+    print('pred_arr.shape', pred_arr.shape)
     pred_arr = pred_arr.clip(min=0)
     df_submission = pd.DataFrame()
     df_submission['test_id']= range(0,n_test_images)
@@ -136,7 +154,25 @@ def create_submission():
     df_submission['adult_females']= pred_arr[:,2]
     df_submission['juveniles']= pred_arr[:,3]
     df_submission['pups']= pred_arr[:,4]
-    df_submission.to_csv(model_name+'_submission.csv',index=False)
-   
-train()
-create_submission()
+    df_submission.to_csv(name,index=False)
+    
+
+trainPath1 = 'C:\\SeaLions\\train_images_512x512\\'
+testPath1 = 'C:\\SeaLions\\test_images_512x512\\' 
+
+
+#%% Train
+
+train(trainPath=trainPath1, validOn=True)
+
+
+#%% Pred train
+
+create_submission(testPath=trainPath1,
+                  name='train_reg_512x512_V2.csv', train=True)
+
+
+#%% Pred test
+
+create_submission(testPath=testPath1,
+                  name='testing_reg_512x512_V2.csv', train=False)
